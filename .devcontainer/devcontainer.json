@@ -1,0 +1,29 @@
+{
+    "name": "YouTube CLI Dev (Go 1.25 + Ollama + Claude Code)",
+    "image": "mcr.microsoft.com/devcontainers/go:1.25-bookworm",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "upgradePackages": true
+        },
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "latest"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.Go"
+            ]
+        }
+    },
+    // コンテナ作成時に実行されるコマンド（ここが自動化の肝！）
+    "postCreateCommand": "sudo apt-get update && sudo apt-get install -y zstd && curl -fsSL https://ollama.com/install.sh | sh && curl -fsSL https://claude.ai/install.sh | bash",
+    
+    // コンテナ内の環境変数設定（PATHを通す）
+    "remoteEnv": {
+        "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin"
+    },
+    
+    "remoteUser": "vscode"
+}

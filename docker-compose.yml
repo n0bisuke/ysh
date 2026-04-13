@@ -1,0 +1,12 @@
+services:
+  dev:
+    # Goの場合
+    image: golang:1.22-bookworm
+    # Rustの場合は image: rust:1.77-bookworm
+    volumes:
+      - .:/app
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    environment:
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}

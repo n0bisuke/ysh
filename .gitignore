@@ -1,0 +1,37 @@
+# --- Security ---
+# APIキーや秘密情報が含まれるファイルは絶対に無視
+.env
+
+# --- Go ---
+# ビルドされたバイナリ名（プロジェクト名）
+ysh
+# テストやビルドの成果物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# --- OS Specific ---
+# macOS特有の隠しファイル
+.DS_Store
+# Windows特有のファイル
+Thumbs.db
+
+# --- Editors / IDEs ---
+# VS Codeのローカル設定（.devcontainer フォルダ自体は commit するのが正解！）
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# --- Tool Specific ---
+# Claude Code や Ollama の一時的なログやキャッシュがあれば
+claudecode_debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
