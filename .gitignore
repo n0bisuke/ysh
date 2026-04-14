@@ -1,6 +1,8 @@
 # --- Security ---
 # APIキーや秘密情報が含まれるファイルは絶対に無視
 .env
+# OAuth token cache
+.token.json
 
 # --- Go ---
 # ビルドされたバイナリ名（プロジェクト名）
