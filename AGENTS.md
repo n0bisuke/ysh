@@ -27,11 +27,20 @@
 
 ```
 youtube-cli/
-├── main.go       # エントリポイント、コマンドディスパッチ、ls/cd/open/cp等の実装
-├── auth.go       # OAuth 2.0 認証フロー、トークン保存/読み込み
-├── setup.go      # 初回セットアップ、設定ファイル読み書き、パス管理
-├── go.mod        # モジュール定義 (module ysh)
-├── .env          # 開発用ローカル設定（gitignore済み）
+├── cmd/ysh/        # ソースコード（package main）
+│   ├── main.go     # エントリポイント、App struct、executor/completer
+│   ├── cmd_ls.go   # ls系コマンド
+│   ├── cmd_cd.go   # cd コマンド
+│   ├── cmd_cat.go  # cat コマンド
+│   ├── cmd_open.go # open コマンド、QRコード表示
+│   ├── cmd_write.go # 書き込み系コマンド（cp, mkdir, chmod, rm, mv, rmdir, ensureOAuth）
+│   ├── cmd_whoami.go # whoami コマンド
+│   ├── helpers.go  # ユーティリティ（parsePath, filterByPrefix, truncate, formatDuration, formatNumber）
+│   ├── auth.go     # OAuth 2.0 認証フロー、トークン保存/読み込み
+│   └── setup.go    # 初回セットアップ、設定ファイル読み書き、パス管理
+├── go.mod          # モジュール定義 (module ysh)
+├── build/          # ビルド成果物（gitignore済み）
+├── .env            # 開発用ローカル設定（gitignore済み）
 ├── .gitignore
 ├── AGENTS.md
 ├── CLAUDE.md
@@ -41,10 +50,10 @@ youtube-cli/
 ```
 
 ### 分割ルール
-- コマンド実装（doLs, doCd, doCp, doOpen等）は main.go に置く。
-- OAuth認証関連は auth.go に分離する。
-- 設定・セットアップ関連は setup.go に分離する。
-- 新しいコマンド追加時は main.go の executor/completer とコマンド関数を追加する。
+- コマンド実装は `cmd_*.go` ファイルに分割する。
+- 書き込み系コマンド（OAuth必要）は `cmd_write.go` にまとめる。
+- 読み取り系コマンドは個別ファイルに分割する。
+- 新しいコマンド追加時は対応する `cmd_*.go` と main.go の executor/completer を更新する。
 
 ## パス構造
 - `//` → 登録チャンネル一覧（OAuth必要、APIキーのみでは案内メッセージ表示）
@@ -62,6 +71,6 @@ youtube-cli/
 - 詳細な実装状態は docs/current-state.md を参照
 
 ## 検証
-- コード変更後は `go build -o ysh .` でビルドを確認すること。
+- コード変更後は `go build -o build/ysh ./cmd/ysh/` でビルドを確認すること。
 - go-prompt は非対話環境で動作しないため、実行時テストはユーザー環境で行うこと。
 - 未実装の部分がある場合は、その点を明確に伝えること。

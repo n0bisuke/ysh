@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build binaries
+        run: |
+          mkdir -p build
+
+          # macOS
+          GOOS=darwin GOARCH=arm64 go build -o build/ysh-darwin-arm64 ./cmd/ysh/
+          GOOS=darwin GOARCH=amd64 go build -o build/ysh-darwin-amd64 ./cmd/ysh/
+
+          # Linux
+          GOOS=linux GOARCH=arm64 go build -o build/ysh-linux-arm64 ./cmd/ysh/
+          GOOS=linux GOARCH=amd64 go build -o build/ysh-linux-amd64 ./cmd/ysh/
+
+          # Windows
+          GOOS=windows GOARCH=amd64 go build -o build/ysh-windows-amd64.exe ./cmd/ysh/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*
+          generate_release_notes: true
