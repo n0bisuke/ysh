@@ -8,6 +8,16 @@ import (
 	"google.golang.org/api/youtube/v3"
 )
 
+// readService returns the best service for read operations.
+// Own channel: prefer OAuth (to see private/unlisted content)
+// Other channels: use API key service (sufficient for public data)
+func (a *App) readService(chID string) *youtube.Service {
+	if a.oauthService != nil && chID == a.homeChannel {
+		return a.oauthService
+	}
+	return a.service
+}
+
 func (a *App) ensureOAuth() bool {
 	if a.oauthService != nil {
 		return true
@@ -143,7 +153,7 @@ func (a *App) doChmod(args []string) {
 
 func (a *App) doRm(args []string) {
 	if len(args) < 2 {
-		fmt.Println("Usage: rm <video_id> <playlist_id>")
+		fmt.Println("Usage: rm <video_id> <playlist_id>  (removes video from playlist, does not delete the video)")
 		return
 	}
 	if !a.ensureOAuth() {
@@ -256,4 +266,19 @@ func (a *App) doRmdir(args []string) {
 		return
 	}
 	fmt.Printf("Deleted playlist %s\n", playlistID)
+}
+
+func (a *App) doLogout() {
+	if a.oauthService == nil {
+		fmt.Println("Not logged in with OAuth.")
+		return
+	}
+	a.oauthService = nil
+	err := os.Remove(tokenPath())
+	if err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Error removing token: %v\n", err)
+		return
+	}
+	fmt.Println("Logged out. OAuth token removed.")
+	fmt.Println("Run a write command (cp, mkdir, etc.) to re-authenticate.")
 }

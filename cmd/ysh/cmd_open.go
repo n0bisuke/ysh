@@ -5,19 +5,33 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/mdp/qrterminal"
 )
 
 func (a *App) doOpen(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: open <video_id|playlist_id>")
+		fmt.Println("Usage: open <video_id|playlist_id|. >")
 		return
 	}
 	id := args[0]
 
 	var url string
-	if a.isPlaylistID(id) {
+
+	// Handle "." — open current path
+	if id == "." || id == "./" {
+		chID, plID := parsePath(a.cwd)
+		switch {
+		case chID == "" && plID == "":
+			fmt.Println("No URL for root directory.")
+			return
+		case plID != "":
+			url = "https://www.youtube.com/playlist?list=" + plID
+		default:
+			url = "https://www.youtube.com/channel/" + chID
+		}
+	} else if a.isPlaylistID(id) {
 		url = "https://www.youtube.com/playlist?list=" + id
 	} else {
 		url = "https://www.youtube.com/watch?v=" + id
@@ -36,7 +50,7 @@ func (a *App) doOpen(args []string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := cmd.Run(); err != nil {
 		fmt.Println("(Could not open browser automatically)")
 		return
 	}
@@ -49,5 +63,5 @@ func (a *App) isPlaylistID(id string) bool {
 			return true
 		}
 	}
-	return false
+	return strings.HasPrefix(id, "PL")
 }

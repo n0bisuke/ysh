@@ -2,13 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
+	"google.golang.org/api/youtube/v3"
 )
+
+var _ = youtube.YoutubeForceSslScope // ensure youtube package is linked
 
 func configDir() string {
 	home, _ := os.UserHomeDir()
@@ -45,17 +49,30 @@ func readLineDefault(prompt, defaultVal string) string {
 	return text
 }
 
-// runSetup checks for required env vars. Search order:
+// fetchOwnChannelID uses OAuth to get the authenticated user's channel ID.
+func fetchOwnChannelID(clientID, clientSecret string) string {
+	ctx := context.Background()
+	svc, err := getOAuthService(ctx, clientID, clientSecret)
+	if err != nil {
+		return ""
+	}
+	channels, err := svc.Channels.List([]string{"id"}).Mine(true).Do()
+	if err != nil {
+		return ""
+	}
+	if len(channels.Items) == 0 {
+		return ""
+	}
+	return channels.Items[0].Id
+}
+
+// runSetup checks for credentials. Either API key or OAuth is sufficient.
+// Search order:
 //  1. Existing environment variables (e.g. exported in shell)
-//  2. ~/.config/ysh/config (global config)
+//  2. ~/.ysh/.env (global config)
 //  3. ./.env (local project config, for development)
-//
-// If required values are still missing, launches interactive setup
-// and saves to ~/.config/ysh/config.
 func runSetup() (apiKey, channelID, clientID, clientSecret string) {
-	// Load global config first
 	_ = godotenv.Load(configPath())
-	// Then local config (overrides global)
 	_ = godotenv.Load()
 
 	apiKey = os.Getenv("YOUTUBE_API_KEY")
@@ -63,47 +80,98 @@ func runSetup() (apiKey, channelID, clientID, clientSecret string) {
 	clientID = os.Getenv("YOUTUBE_CLIENT_ID")
 	clientSecret = os.Getenv("YOUTUBE_CLIENT_SECRET")
 
-	if apiKey != "" && channelID != "" {
+	hasAPIKey := apiKey != ""
+	hasOAuth := clientID != "" && clientSecret != ""
+
+	// All configured — nothing to do
+	if (hasAPIKey || hasOAuth) && channelID != "" {
 		return
 	}
 
 	fmt.Println("=== ysh first-time setup ===")
-	fmt.Println("Required values are missing. Let's configure them.")
+	fmt.Println()
+	fmt.Println("You need either an API key (read-only) or OAuth credentials (full access).")
 	fmt.Println()
 
-	if apiKey == "" {
-		fmt.Println("[1/2] YouTube Data API v3 key (required)")
-		fmt.Println("  Get one at: https://console.cloud.google.com/apis/credentials")
-		apiKey = readLine("  YOUTUBE_API_KEY: ")
-		if apiKey == "" {
-			fmt.Println("API key is required. Exiting.")
-			os.Exit(1)
+	if !hasAPIKey && !hasOAuth {
+		fmt.Println("Choose authentication method:")
+		fmt.Println("  1) API key (read-only access, simpler setup)")
+		fmt.Println("  2) OAuth credentials (full access, auto-detect channel)")
+		fmt.Println()
+		var choice string
+		for choice != "1" && choice != "2" {
+			choice = readLine("  Select [1/2]: ")
+			if choice != "1" && choice != "2" {
+				fmt.Println("  Please enter 1 or 2.")
+			}
 		}
-	} else {
-		fmt.Println("[1/2] YOUTUBE_API_KEY: already set")
+
+		switch choice {
+		case "1":
+			fmt.Println()
+			fmt.Println("  Get an API key at: https://console.cloud.google.com/apis/credentials")
+			for apiKey == "" {
+				apiKey = readLine("  YOUTUBE_API_KEY: ")
+				if apiKey == "" {
+					fmt.Println("  API key is required. Please enter your key.")
+				}
+			}
+		case "2":
+			fmt.Println()
+			fmt.Println("  Create OAuth credentials at: https://console.cloud.google.com/apis/credentials")
+			fmt.Println("  Application type: Desktop app")
+			fmt.Println("  Redirect URI: http://localhost:8089/callback")
+			fmt.Println()
+			for clientID == "" {
+				clientID = readLine("  YOUTUBE_CLIENT_ID: ")
+				if clientID == "" {
+					fmt.Println("  Client ID is required. Please enter your client ID.")
+				}
+			}
+			for clientSecret == "" {
+				clientSecret = readLine("  YOUTUBE_CLIENT_SECRET: ")
+				if clientSecret == "" {
+					fmt.Println("  Client secret is required. Please enter your client secret.")
+				}
+			}
+			// Auto-detect channel ID via OAuth
+			fmt.Println()
+			fmt.Println("  Authenticating with OAuth to detect your channel...")
+			autoID := fetchOwnChannelID(clientID, clientSecret)
+			if autoID != "" {
+				fmt.Printf("  Detected channel: %s\n", autoID)
+				channelID = autoID
+			} else {
+				fmt.Println("  Could not auto-detect your channel.")
+			}
+		}
+	} else if hasAPIKey && !hasOAuth {
+		fmt.Println("YOUTUBE_API_KEY: already set")
+		fmt.Println()
+		fmt.Println("--- Optional: OAuth credentials (for write operations) ---")
+		fmt.Println("  Leave blank to skip (read-only mode).")
+		fmt.Println("  Create at: https://console.cloud.google.com/apis/credentials")
+		fmt.Println("  Redirect URI: http://localhost:8089/callback")
+		fmt.Println()
+		clientID = readLineDefault("  YOUTUBE_CLIENT_ID", clientID)
+		clientSecret = readLineDefault("  YOUTUBE_CLIENT_SECRET", clientSecret)
+	} else if !hasAPIKey && hasOAuth {
+		fmt.Println("YOUTUBE_CLIENT_ID / SECRET: already set (OAuth mode)")
 	}
 
+	// If channel ID still missing, ask manually (needed for API key mode or OAuth auto-detect failed)
 	if channelID == "" {
-		fmt.Println("[2/2] Your YouTube Channel ID (required)")
+		fmt.Println()
+		fmt.Println("Your YouTube Channel ID is required.")
 		fmt.Println("  Format: UCxxxxxxxxxxxxxxxx")
 		fmt.Println("  Find at: https://www.youtube.com/account_advanced")
-		channelID = readLine("  YOUTUBE_CHANNEL_ID: ")
-		if channelID == "" {
-			fmt.Println("Channel ID is required. Exiting.")
-			os.Exit(1)
+		for channelID == "" {
+			channelID = readLine("  YOUTUBE_CHANNEL_ID: ")
+			if channelID == "" {
+				fmt.Println("  Channel ID is required. Please enter your channel ID.")
+			}
 		}
-	} else {
-		fmt.Println("[2/2] YOUTUBE_CHANNEL_ID: already set")
 	}
-
-	fmt.Println()
-	fmt.Println("--- Optional: OAuth credentials (for 'add' command) ---")
-	fmt.Println("  Leave blank to skip (read-only mode).")
-	fmt.Println("  Create at: https://console.cloud.google.com/apis/credentials")
-	fmt.Println("  Redirect URI: http://localhost:8089/callback")
-	fmt.Println()
-	clientID = readLineDefault("  YOUTUBE_CLIENT_ID", clientID)
-	clientSecret = readLineDefault("  YOUTUBE_CLIENT_SECRET", clientSecret)
 
 	saveConfig(apiKey, channelID, clientID, clientSecret)
 	fmt.Println()
@@ -116,7 +184,9 @@ func saveConfig(apiKey, channelID, clientID, clientSecret string) {
 	os.MkdirAll(dir, 0700)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("YOUTUBE_API_KEY=%s\n", apiKey))
+	if apiKey != "" {
+		b.WriteString(fmt.Sprintf("YOUTUBE_API_KEY=%s\n", apiKey))
+	}
 	b.WriteString(fmt.Sprintf("YOUTUBE_CHANNEL_ID=%s\n", channelID))
 	if clientID != "" {
 		b.WriteString(fmt.Sprintf("YOUTUBE_CLIENT_ID=%s\n", clientID))
@@ -126,7 +196,9 @@ func saveConfig(apiKey, channelID, clientID, clientSecret string) {
 	}
 	os.WriteFile(configPath(), []byte(b.String()), 0600)
 
-	os.Setenv("YOUTUBE_API_KEY", apiKey)
+	if apiKey != "" {
+		os.Setenv("YOUTUBE_API_KEY", apiKey)
+	}
 	os.Setenv("YOUTUBE_CHANNEL_ID", channelID)
 	if clientID != "" {
 		os.Setenv("YOUTUBE_CLIENT_ID", clientID)

@@ -2,65 +2,70 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
 	"google.golang.org/api/youtube/v3"
 )
 
-func (a *App) doLs() {
+func (a *App) doLs(args []string) {
+	longFormat := false
+	for _, arg := range args {
+		if arg == "-l" {
+			longFormat = true
+		}
+	}
+
 	chID, plID := parsePath(a.cwd)
 	switch {
 	case chID == "" && plID == "":
-		a.listSubscriptions()
+		a.listMyChannels()
 	case plID == "":
-		a.listChannel(chID)
+		a.listChannel(chID, longFormat)
 	default:
-		a.listPlaylistItems(plID)
+		a.listPlaylistItems(plID, longFormat)
 	}
 }
 
-func (a *App) listSubscriptions() {
-	hasOAuth := os.Getenv("YOUTUBE_CLIENT_ID") != "" && os.Getenv("YOUTUBE_CLIENT_SECRET") != ""
-
-	if !hasOAuth {
-		fmt.Println("Subscriptions require OAuth credentials.")
-		fmt.Println("Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in ~/.ysh/.env to list your subscriptions.")
-		fmt.Println()
-		fmt.Println("You can still navigate directly: cd UCxxxxxxxxxxxxxxxx")
-		return
+func (a *App) listMyChannels() {
+	svc := a.service
+	if a.oauthService != nil {
+		svc = a.oauthService
 	}
 
-	call := a.service.Subscriptions.List([]string{"snippet"}).
-		Mine(true).
-		MaxResults(50)
-	subs, err := call.Do()
+	call := svc.Channels.List([]string{"snippet"}).Mine(true).MaxResults(50)
+	channels, err := call.Do()
 	if err != nil {
-		fmt.Printf("Error fetching subscriptions: %v\n", err)
+		fmt.Printf("Error fetching your channels: %v\n", err)
 		return
 	}
 
-	fmt.Printf("%-3s  %-38s %-30s %s\n", "T", "ID", "TITLE", "INFO")
-	fmt.Println(strings.Repeat("-", 80))
-	a.entries = make([]prompt.Suggest, 0, len(subs.Items))
+	fmt.Printf("%-3s  %-38s %-15s %s\n", "T", "ID", "INFO", "TITLE")
+	fmt.Println(strings.Repeat("-", 90))
+	a.entries = make([]prompt.Suggest, 0, len(channels.Items))
 	a.playlistEntries = nil
 	a.videoEntries = nil
-	for _, sub := range subs.Items {
-		chID := sub.Snippet.ResourceId.ChannelId
-		title := sub.Snippet.Title
-		fmt.Printf("%sd%s  %-38s %-30s channel\n",
+	for _, ch := range channels.Items {
+		title := ch.Snippet.Title
+		fmt.Printf("%sd%s  %-38s %-15s %s\n",
 			colorBlue, colorReset,
-			chID, truncate(title, 29))
+			ch.Id, "my channel", title)
 		a.entries = append(a.entries, prompt.Suggest{
-			Text:        chID,
+			Text:        ch.Id,
 			Description: title,
 		})
 	}
 }
 
-func (a *App) listChannel(chID string) {
-	plCall := a.service.Playlists.List([]string{"snippet,contentDetails"}).
+func (a *App) listChannel(chID string, longFormat bool) {
+	svc := a.readService(chID)
+
+	parts := []string{"snippet,contentDetails"}
+	if longFormat {
+		parts = []string{"snippet,contentDetails,status"}
+	}
+
+	plCall := svc.Playlists.List(parts).
 		ChannelId(chID).
 		MaxResults(50)
 	playlists, err := plCall.Do()
@@ -69,31 +74,60 @@ func (a *App) listChannel(chID string) {
 		return
 	}
 
-	chCall := a.service.Channels.List([]string{"contentDetails"}).Id(chID)
+	chCall := svc.Channels.List([]string{"contentDetails"}).Id(chID)
 	channels, err := chCall.Do()
+	if err != nil {
+		fmt.Printf("Error fetching channel: %v\n", err)
+		return
+	}
+	if len(channels.Items) == 0 {
+		fmt.Printf("Channel not found: %s\n", chID)
+		fmt.Println("Check your YOUTUBE_CHANNEL_ID in ~/.ysh/.env")
+		return
+	}
+
 	var videoItems []*youtube.PlaylistItem
-	if err == nil && len(channels.Items) > 0 {
-		uploadsID := channels.Items[0].ContentDetails.RelatedPlaylists.Uploads
-		if uploadsID != "" {
-			items, err := a.service.PlaylistItems.List([]string{"snippet,contentDetails"}).
-				PlaylistId(uploadsID).
-				MaxResults(50).
-				Do()
-			if err == nil {
-				videoItems = items.Items
-			}
+	uploadsID := channels.Items[0].ContentDetails.RelatedPlaylists.Uploads
+	if uploadsID != "" {
+		videoParts := []string{"snippet,contentDetails"}
+		if longFormat {
+			videoParts = []string{"snippet,contentDetails,status"}
+		}
+		items, err := svc.PlaylistItems.List(videoParts).
+			PlaylistId(uploadsID).
+			MaxResults(50).
+			Do()
+		if err == nil {
+			videoItems = items.Items
 		}
 	}
 
-	fmt.Printf("%-3s  %-38s %-30s %s\n", "T", "ID", "TITLE", "INFO")
-	fmt.Println(strings.Repeat("-", 80))
+	if len(playlists.Items) == 0 && len(videoItems) == 0 {
+		fmt.Println("No playlists or videos found for this channel.")
+		return
+	}
+
+	if longFormat {
+		fmt.Printf("%-3s  %-10s %-38s %-15s %s\n", "T", "MODE", "ID", "INFO", "TITLE")
+	} else {
+		fmt.Printf("%-3s  %-38s %-15s %s\n", "T", "ID", "INFO", "TITLE")
+	}
+	fmt.Println(strings.Repeat("-", 90))
 	a.playlistEntries = make([]prompt.Suggest, 0, len(playlists.Items))
 	a.videoEntries = make([]prompt.Suggest, 0, len(videoItems))
 	a.entries = make([]prompt.Suggest, 0, len(playlists.Items)+len(videoItems))
 	for _, pl := range playlists.Items {
-		fmt.Printf("%sd%s  %-38s %-30s %d items\n",
-			colorCyan, colorReset,
-			pl.Id, truncate(pl.Snippet.Title, 29), pl.ContentDetails.ItemCount)
+		info := fmt.Sprintf("%d items", pl.ContentDetails.ItemCount)
+		if longFormat && pl.Status != nil {
+			mode := pl.Status.PrivacyStatus
+			fmt.Printf("%sd%s  %-10s %-38s %-15s %s\n",
+				colorCyan, colorReset,
+				mode, pl.Id, info, pl.Snippet.Title)
+		} else {
+			fmt.Printf("%sd%s  %-38s %-15s %s\n",
+				colorCyan, colorReset,
+				pl.Id, info, pl.Snippet.Title)
+		}
 		s := prompt.Suggest{Text: pl.Id, Description: "[PL] " + pl.Snippet.Title}
 		a.playlistEntries = append(a.playlistEntries, s)
 		a.entries = append(a.entries, s)
@@ -101,17 +135,35 @@ func (a *App) listChannel(chID string) {
 	for _, item := range videoItems {
 		videoID := item.ContentDetails.VideoId
 		title := item.Snippet.Title
-		fmt.Printf("%s-%s  %-38s %-30s video\n",
-			colorGreen, colorReset,
-			videoID, truncate(title, 29))
+		if longFormat {
+			mode := "public"
+			if item.Status != nil && item.Status.PrivacyStatus != "" {
+				mode = item.Status.PrivacyStatus
+			}
+			fmt.Printf("%s-%s  %-10s %-38s %-15s %s\n",
+				colorGreen, colorReset,
+				mode, videoID, "video", title)
+		} else {
+			fmt.Printf("%s-%s  %-38s %-15s %s\n",
+				colorGreen, colorReset,
+				videoID, "video", title)
+		}
 		s := prompt.Suggest{Text: videoID, Description: title}
 		a.videoEntries = append(a.videoEntries, s)
 		a.entries = append(a.entries, s)
 	}
 }
 
-func (a *App) listPlaylistItems(playlistID string) {
-	call := a.service.PlaylistItems.List([]string{"snippet,contentDetails"}).
+func (a *App) listPlaylistItems(playlistID string, longFormat bool) {
+	chID, _ := parsePath(a.cwd)
+	svc := a.readService(chID)
+
+	parts := []string{"snippet,contentDetails"}
+	if longFormat {
+		parts = []string{"snippet,contentDetails,status"}
+	}
+
+	call := svc.PlaylistItems.List(parts).
 		PlaylistId(playlistID).
 		MaxResults(50)
 	items, err := call.Do()
@@ -120,15 +172,32 @@ func (a *App) listPlaylistItems(playlistID string) {
 		return
 	}
 
-	fmt.Printf("%-15s %-45s %s\n", "VIDEO_ID", "TITLE", "POSITION")
-	fmt.Println(strings.Repeat("-", 80))
+	if len(items.Items) == 0 {
+		fmt.Println("This playlist is empty.")
+		return
+	}
+
+	if longFormat {
+		fmt.Printf("%-15s %-10s %-10s %s\n", "VIDEO_ID", "MODE", "POSITION", "TITLE")
+	} else {
+		fmt.Printf("%-15s %-10s %s\n", "VIDEO_ID", "POSITION", "TITLE")
+	}
+	fmt.Println(strings.Repeat("-", 90))
 	a.videoEntries = make([]prompt.Suggest, 0, len(items.Items))
 	a.entries = make([]prompt.Suggest, 0, len(items.Items))
 	for _, item := range items.Items {
 		videoID := item.ContentDetails.VideoId
 		title := item.Snippet.Title
 		pos := item.Snippet.Position
-		fmt.Printf("%-15s %-45s %d\n", videoID, truncate(title, 44), pos)
+		if longFormat {
+			mode := "public"
+			if item.Status != nil && item.Status.PrivacyStatus != "" {
+				mode = item.Status.PrivacyStatus
+			}
+			fmt.Printf("%-15s %-10s %-10d %s\n", videoID, mode, pos, title)
+		} else {
+			fmt.Printf("%-15s %-10d %s\n", videoID, pos, title)
+		}
 		s := prompt.Suggest{Text: videoID, Description: title}
 		a.videoEntries = append(a.videoEntries, s)
 		a.entries = append(a.entries, s)

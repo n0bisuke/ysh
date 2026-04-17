@@ -72,5 +72,7 @@ youtube-cli/
 
 ## 検証
 - コード変更後は `go build -o build/ysh ./cmd/ysh/` でビルドを確認すること。
+- バージョン付きビルド: `go build -ldflags "-X main.version=X.Y.Z" -o build/ysh ./cmd/ysh/`
+- リリース時はタグからバージョンを注入する（GitHub Actions参照）。
 - go-prompt は非対話環境で動作しないため、実行時テストはユーザー環境で行うこと。
 - 未実装の部分がある場合は、その点を明確に伝えること。

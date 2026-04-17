@@ -28,7 +28,7 @@ func filterByPrefix(suggestions []prompt.Suggest, prefix string) []prompt.Sugges
 	lower := strings.ToLower(prefix)
 	var filtered []prompt.Suggest
 	for _, s := range suggestions {
-		if strings.HasPrefix(strings.ToLower(s.Text), lower) {
+		if strings.HasPrefix(strings.ToLower(s.Text), lower) || strings.Contains(strings.ToLower(s.Description), lower) {
 			filtered = append(filtered, s)
 		}
 	}

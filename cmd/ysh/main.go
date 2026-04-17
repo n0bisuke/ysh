@@ -12,16 +12,18 @@ import (
 	"google.golang.org/api/youtube/v3"
 )
 
+var version = "dev"
+
 const (
-	colorBlue   = "\033[1;34m"
-	colorGreen  = "\033[1;32m"
-	colorCyan   = "\033[1;36m"
-	colorReset  = "\033[0m"
+	colorBlue  = "\033[1;34m"
+	colorGreen = "\033[1;32m"
+	colorCyan  = "\033[1;36m"
+	colorReset = "\033[0m"
 )
 
 type App struct {
-	service         *youtube.Service // API-key based (read-only)
-	oauthService    *youtube.Service // OAuth-based (read-write, lazy init)
+	service         *youtube.Service // read operations (API key or OAuth)
+	oauthService    *youtube.Service // write operations (OAuth, lazy init if service uses API key)
 	cwd             string           // current path: "//" | "/UCxxxx" | "/UCxxxx/PLxxxx"
 	homeChannel     string           // own channel ID from config
 	entries         []prompt.Suggest // all ls results for cd completion
@@ -34,30 +36,112 @@ func main() {
 	apiKey, channelID, clientID, clientSecret := runSetup()
 
 	ctx := context.Background()
-	service, err := youtube.NewService(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		log.Fatalf("Failed to create YouTube client: %v", err)
-	}
+
+	hasOAuth := clientID != "" && clientSecret != ""
+	hasAPIKey := apiKey != ""
 
 	app := &App{
-		service:     service,
 		cwd:         "/" + channelID,
 		homeChannel: channelID,
 	}
 
-	hasOAuth := clientID != "" && clientSecret != ""
+	if hasAPIKey {
+		service, err := youtube.NewService(ctx, option.WithAPIKey(apiKey))
+		if err != nil {
+			log.Fatalf("Failed to create YouTube client: %v", err)
+		}
+		app.service = service
+	}
 
-	fmt.Println("ysh - YouTube Shell")
+	if hasOAuth {
+		svc, err := getOAuthService(ctx, clientID, clientSecret)
+		if err != nil {
+			fmt.Printf("Warning: OAuth authentication failed: %v\n", err)
+			if hasAPIKey {
+				fmt.Println("Falling back to API key (read-only mode).")
+			} else {
+				log.Fatalf("OAuth authentication failed and no API key set. Exiting.")
+			}
+			hasOAuth = false
+		} else {
+			app.oauthService = svc
+			if !hasAPIKey {
+				app.service = svc
+			}
+			// Override homeChannel with the OAuth-authenticated channel
+			channels, err := svc.Channels.List([]string{"id"}).Mine(true).Do()
+			if err == nil && len(channels.Items) > 0 {
+				oauthChannelID := channels.Items[0].Id
+				if oauthChannelID != channelID {
+					app.homeChannel = oauthChannelID
+					app.cwd = "/" + oauthChannelID
+				}
+			}
+		}
+	}
+
+	// Non-interactive (one-shot) mode: ysh <command> [args...]
+	if len(os.Args) > 1 {
+		args := os.Args[1:]
+		for i := 0; i < len(args); i++ {
+			if args[i] == "-C" && i+1 < len(args) {
+				app.cwd = args[i+1]
+				args = append(args[:i], args[i+2:]...)
+				i -= 1
+				continue
+			}
+			switch args[i] {
+			case "--version", "-v":
+				fmt.Printf("ysh %s\n", version)
+				return
+			case "--help", "-h":
+				fmt.Printf("ysh %s - YouTube Shell\n\n", version)
+				fmt.Println("Usage: ysh [-C <path>] [command] [args...]")
+				fmt.Println()
+				fmt.Println("Options:")
+				fmt.Println("  -C <path>  Set working path (e.g. -C /UCxxxx/PLxxxx)")
+				fmt.Println()
+				fmt.Println("Commands:")
+				fmt.Println("  ls [-l]              List playlists/videos")
+				fmt.Println("  cat <video_id>       Show video details")
+				fmt.Println("  cp <video> <pl>      Add video to playlist")
+				fmt.Println("  rm <video> <pl>      Remove video from playlist")
+				fmt.Println("  mv <video> <src> <dst> Move video between playlists")
+				fmt.Println("  mkdir [-m MODE] <title> Create playlist")
+				fmt.Println("  chmod <mode> <pl>    Change playlist privacy")
+				fmt.Println("  rmdir <pl>           Delete playlist")
+				fmt.Println("  whoami               Show your channel info")
+				fmt.Println("  pwd                  Print current path")
+				fmt.Println("  logout               Reset OAuth token")
+				fmt.Println("  grep <keyword>       Filter ls results by keyword")
+				fmt.Println("  tree                 Display tree view of hierarchy")
+				fmt.Println()
+				fmt.Println("Run without arguments for interactive shell.")
+				return
+			}
+		}
+		if len(args) > 0 {
+			app.executor(strings.Join(args, " "))
+		}
+		return
+	}
+
+	// Interactive mode
+	fmt.Printf("ysh %s - YouTube Shell\n", version)
 	fmt.Println("Loading...")
-	app.doLs()
+	app.doLs(nil)
 	fmt.Println()
 	if hasOAuth {
-		fmt.Println("Mode: full (read + write)")
-		fmt.Println("Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, exit")
+		if hasAPIKey {
+			fmt.Println("Mode: full (API key + OAuth)")
+		} else {
+			fmt.Println("Mode: full (OAuth)")
+		}
+		fmt.Println("Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, logout, exit, find, grep, tree")
 	} else {
-		fmt.Println("Mode: read-only (write commands unavailable)")
+		fmt.Println("Mode: read-only (API key)")
 		fmt.Println("Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in ~/.ysh/.env to enable write operations.")
-		fmt.Println("Commands: ls, cd, cat, whoami, open, pwd, exit")
+		fmt.Println("Commands: ls, cd, cat, whoami, open, pwd, exit, find, grep, tree")
 	}
 	p := prompt.New(
 		app.executor,
@@ -98,7 +182,7 @@ func (a *App) executor(in string) {
 
 	switch cmd {
 	case "ls":
-		a.doLs()
+		a.doLs(args)
 	case "cd":
 		a.doCd(args)
 	case "pwd":
@@ -117,10 +201,18 @@ func (a *App) executor(in string) {
 		a.doRm(args)
 	case "whoami":
 		a.doWhoami()
+	case "logout":
+		a.doLogout()
 	case "mv":
 		a.doMv(args)
 	case "rmdir":
 		a.doRmdir(args)
+	case "find":
+		a.doFind(args)
+	case "grep":
+		a.doGrep(args)
+	case "tree":
+		a.doTree(args)
 	case "exit", "quit":
 		fmt.Println("Bye!")
 		os.Exit(0)
@@ -149,6 +241,8 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 	}
 
 	switch cmd {
+	case "ls":
+		return []prompt.Suggest{{Text: "-l", Description: "Show privacy status"}}
 	case "cd":
 		suggestions := []prompt.Suggest{
 			{Text: "..", Description: "Go up to parent directory"},
@@ -189,18 +283,30 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 		}
 	case "rmdir":
 		return filterByPrefix(a.playlistEntries, prefix)
+	case "find":
+		return []prompt.Suggest{
+			{Text: "-k", Description: "Search keyword"},
+			{Text: "-s", Description: "Time filter (1h, 24h, 7d, 30d)"},
+			{Text: "-c", Description: "Channel ID"},
+			{Text: "-a", Description: "Auto-add to playlist"},
+			{Text: "-q", Description: "Quiet mode (IDs only)"},
+		}
 	case "open":
 		all := make([]prompt.Suggest, 0, len(a.videoEntries)+len(a.playlistEntries))
 		all = append(all, a.videoEntries...)
 		all = append(all, a.playlistEntries...)
 		return filterByPrefix(all, prefix)
+	case "grep":
+		return filterByPrefix(a.entries, prefix)
+	case "tree":
+		return []prompt.Suggest{}
 	case "cat":
 		return filterByPrefix(a.videoEntries, prefix)
 	case "mkdir":
 		return []prompt.Suggest{{Text: "-m", Description: "Set mode (public/unlisted/private)"}}
 	case "chmod":
 		return a.playlistEntries
-	case "whoami":
+	case "whoami", "logout":
 		return []prompt.Suggest{}
 	case "exit", "quit":
 		return []prompt.Suggest{}
@@ -211,6 +317,9 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 			{Text: "pwd", Description: "Print working directory"},
 			{Text: "open", Description: "Open video/playlist in browser"},
 			{Text: "cat", Description: "Show video details"},
+			{Text: "find", Description: "Search videos"},
+			{Text: "grep", Description: "Filter ls results by keyword"},
+			{Text: "tree", Description: "Display tree view of hierarchy"},
 			{Text: "cp", Description: "Copy video into playlist"},
 			{Text: "mkdir", Description: "Create playlist"},
 			{Text: "chmod", Description: "Change playlist privacy"},
@@ -218,6 +327,7 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 			{Text: "whoami", Description: "Show your channel info"},
 			{Text: "mv", Description: "Move video between playlists"},
 			{Text: "rmdir", Description: "Delete playlist"},
+			{Text: "logout", Description: "Reset OAuth token"},
 			{Text: "exit", Description: "Exit the shell"},
 		}
 	}

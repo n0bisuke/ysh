@@ -6,7 +6,43 @@ YouTube をファイルシステムのように探索できるインタラクテ
 
 ## 必要環境
 
-- Go 1.25+
+- Go 1.25+（ソースからビルドする場合）
+
+## インストール
+
+### バイナリダウンロード（おすすめ）
+
+OS とアーキテクチャを自動判定して最新版をインストール：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/n0bisuke/youtube-cli/main/install.sh | sh
+```
+
+### GitHub Releases から手動ダウンロード
+
+[Releases ページ](https://github.com/n0bisuke/youtube-cli/releases) から該当バイナリをダウンロード：
+
+| ファイル | OS | アーキテクチャ |
+|---|---|---|
+| `ysh-darwin-arm64` | macOS | Apple Silicon (M1/M2/M3) |
+| `ysh-darwin-amd64` | macOS | Intel |
+| `ysh-linux-arm64` | Linux | ARM64 |
+| `ysh-linux-amd64` | Linux | x86_64 |
+| `ysh-windows-amd64.exe` | Windows | x86_64 |
+
+```bash
+# 例: macOS Apple Silicon
+curl -fsSL -o /usr/local/bin/ysh https://github.com/n0bisuke/youtube-cli/releases/latest/download/ysh-darwin-arm64
+chmod +x /usr/local/bin/ysh
+```
+
+### ソースからビルド
+
+```bash
+git clone https://github.com/n0bisuke/youtube-cli.git
+cd youtube-cli
+go build -ldflags "-X main.version=$(git describe --tags --always)" -o build/ysh ./cmd/ysh/
+```
 
 ## セットアップ
 
@@ -14,22 +50,24 @@ YouTube をファイルシステムのように探索できるインタラクテ
 
 `ysh` を初めて起動すると、必要な値がなければセットアップ画面が立ち上がります。
 
+**API キー + OAuth の場合:**
 ```
 $ ./ysh
 === ysh first-time setup ===
-Required values are missing. Let's configure them.
 
-[1/2] YouTube Data API v3 key (required)
-  Get one at: https://console.cloud.google.com/apis/credentials
-  YOUTUBE_API_KEY: AIzaSy...
+You need either an API key (read-only) or OAuth credentials (full access).
 
-[2/2] Your YouTube Channel ID (required)
+[1/2] Your YouTube Channel ID (required)
   Format: UCxxxxxxxxxxxxxxxx
   Find at: https://www.youtube.com/account_advanced
   YOUTUBE_CHANNEL_ID: UCxxxxxxxxxxxxxxxx
 
---- Optional: OAuth credentials (for 'cp' command) ---
-  Leave blank to skip (read-only mode).
+[2/2] YouTube Data API v3 key (optional — skip if using OAuth)
+  Get one at: https://console.cloud.google.com/apis/credentials
+  YOUTUBE_API_KEY (press Enter to skip): AIzaSy...
+
+--- Optional: OAuth credentials (for write operations) ---
+  Leave blank to skip (read-only mode with API key).
   Create at: https://console.cloud.google.com/apis/credentials
   Redirect URI: http://localhost:8089/callback
 
@@ -39,10 +77,40 @@ Required values are missing. Let's configure them.
 Configuration saved to /home/you/.ysh/.env
 ```
 
+**OAuth のみの場合（APIキー不要）:**
+```
+[2/2] YouTube Data API v3 key (optional — skip if using OAuth)
+  YOUTUBE_API_KEY (press Enter to skip):
+
+--- OAuth credentials (required when API key is not set) ---
+  YOUTUBE_CLIENT_ID: xxxx.apps.googleusercontent.com
+  YOUTUBE_CLIENT_SECRET: GOCSPX-xxxx
+```
+
 入力した値は `~/.ysh/.env` に保存され、次回以降は自動で読み込まれます。
 
 ### 手動で設定する場合
 
+**APIキーのみ（読み取り専用）:**
+```bash
+mkdir -p ~/.ysh
+cat > ~/.ysh/.env << 'EOF'
+YOUTUBE_API_KEY=AIzaSy...
+YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxx
+EOF
+```
+
+**OAuthのみ（フルアクセス）:**
+```bash
+mkdir -p ~/.ysh
+cat > ~/.ysh/.env << 'EOF'
+YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxx
+YOUTUBE_CLIENT_ID=xxxx.apps.googleusercontent.com
+YOUTUBE_CLIENT_SECRET=GOCSPX-xxxx
+EOF
+```
+
+**両方（推奨）:**
 ```bash
 mkdir -p ~/.ysh
 cat > ~/.ysh/.env << 'EOF'
@@ -52,8 +120,6 @@ YOUTUBE_CLIENT_ID=xxxx.apps.googleusercontent.com
 YOUTUBE_CLIENT_SECRET=GOCSPX-xxxx
 EOF
 ```
-
-`YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` は省略可能です。省略すると読み取り専用モードで起動します。
 
 ### 環境変数で渡す場合
 
@@ -99,7 +165,7 @@ export YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxx
 5. クライアント ID とクライアント シークレットをメモ
 6. 作成した OAuth クライアントの **承認済みリダイレクト URI** に `http://localhost:8089/callback` を追加
 
-## ビルドと起動
+## ビルドと起動（開発用）
 
 ```bash
 go build -o build/ysh ./cmd/ysh/
@@ -112,20 +178,30 @@ go build -o build/ysh ./cmd/ysh/
 
 OAuth クレデンシャルあり：
 ```
-ysh - YouTube Shell
+ysh 0.1.0 - YouTube Shell
 Loading...
 ...
-Mode: full (read + write)
+Mode: full (API key + OAuth)
+Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, exit
+yt:/UCxxxx $
+```
+
+OAuth のみ（APIキーなし）：
+```
+ysh 0.1.0 - YouTube Shell
+Loading...
+...
+Mode: full (OAuth)
 Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, exit
 yt:/UCxxxx $
 ```
 
 API キーのみ：
 ```
-ysh - YouTube Shell
+ysh 0.1.0 - YouTube Shell
 Loading...
 ...
-Mode: read-only (write commands unavailable)
+Mode: read-only (API key)
 Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in ~/.ysh/.env to enable write operations.
 Commands: ls, cd, cat, whoami, open, pwd, exit
 yt:/UCxxxx $
