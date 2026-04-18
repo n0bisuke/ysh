@@ -10,7 +10,7 @@ import (
 )
 
 func (a *App) doFind(args []string) {
-	var keyword, since, channelID, addToPlaylist string
+	var keyword, since, channelID, addToPlaylist, eventType string
 	quiet := false
 
 	i := 0
@@ -36,6 +36,13 @@ func (a *App) doFind(args []string) {
 			if i < len(args) {
 				addToPlaylist = args[i]
 			}
+		case "--event-type", "-e":
+			i++
+			if i < len(args) {
+				eventType = args[i]
+			}
+		case "--live", "-l":
+			eventType = "live"
 		case "--quiet", "-q":
 			quiet = true
 		default:
@@ -47,13 +54,15 @@ func (a *App) doFind(args []string) {
 	}
 
 	if keyword == "" {
-		fmt.Println("Usage: find [--keyword|-k] <keyword> [--since|-s] <duration> [--channel|-c] <channel_id> [--add-to|-a] <playlist_id> [--quiet|-q]")
+		fmt.Println("Usage: find [--keyword|-k] <keyword> [--since|-s] <duration> [--channel|-c] <channel_id> [--add-to|-a] <playlist_id> [--event-type|-e] <type> [--live|-l] [--quiet|-q]")
 		fmt.Println()
-		fmt.Println("  --keyword, -k  Search keyword (required)")
-		fmt.Println("  --since, -s    Time filter: 1h, 24h, 7d, 30d (default: 24h)")
-		fmt.Println("  --channel, -c  Limit to channel ID (default: your channel)")
-		fmt.Println("  --add-to, -a   Auto-add found videos to this playlist")
-		fmt.Println("  --quiet, -q    Output only video IDs (for scripting)")
+		fmt.Println("  --keyword, -k    Search keyword (required)")
+		fmt.Println("  --since, -s      Time filter: 1h, 24h, 7d, 30d (default: 24h)")
+		fmt.Println("  --channel, -c    Limit to channel ID (default: your channel)")
+		fmt.Println("  --add-to, -a     Auto-add found videos to this playlist")
+		fmt.Println("  --event-type, -e Filter by broadcast type: live, upcoming, completed")
+		fmt.Println("  --live, -l        Shorthand for --event-type live")
+		fmt.Println("  --quiet, -q      Output only video IDs (for scripting)")
 		return
 	}
 
@@ -78,6 +87,9 @@ func (a *App) doFind(args []string) {
 		Type("video").
 		PublishedAfter(publishedAfter).
 		MaxResults(50)
+	if eventType != "" {
+		call = call.EventType(eventType)
+	}
 	results, err := call.Do()
 	if err != nil {
 		fmt.Printf("Error searching: %v\n", err)

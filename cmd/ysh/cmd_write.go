@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"google.golang.org/api/youtube/v3"
 )
@@ -42,7 +43,7 @@ func (a *App) ensureOAuth() bool {
 
 func (a *App) doCp(args []string) {
 	if len(args) < 2 {
-		fmt.Println("Usage: cp <video_id> <playlist_id>")
+		fmt.Println("Usage: cp <video_id> <playlist_id> [position]")
 		return
 	}
 	if !a.ensureOAuth() {
@@ -60,12 +61,25 @@ func (a *App) doCp(args []string) {
 			},
 		},
 	}
+	if len(args) >= 3 {
+		pos, err := strconv.ParseInt(args[2], 10, 64)
+		if err != nil {
+			fmt.Printf("Invalid position: %s (must be a number)\n", args[2])
+			return
+		}
+		item.Snippet.Position = pos
+	}
+
 	_, err := a.oauthService.PlaylistItems.Insert([]string{"snippet"}, item).Do()
 	if err != nil {
 		fmt.Printf("Error adding video: %v\n", err)
 		return
 	}
-	fmt.Printf("Added video %s to playlist %s\n", videoID, playlistID)
+	posMsg := ""
+	if len(args) >= 3 {
+		posMsg = fmt.Sprintf(" at position %s", args[2])
+	}
+	fmt.Printf("Added video %s to playlist %s%s\n", videoID, playlistID, posMsg)
 }
 
 func (a *App) doMkdir(args []string) {
@@ -194,7 +208,7 @@ func (a *App) doRm(args []string) {
 
 func (a *App) doMv(args []string) {
 	if len(args) < 3 {
-		fmt.Println("Usage: mv <video_id> <src_playlist_id> <dst_playlist_id>")
+		fmt.Println("Usage: mv <video_id> <src_playlist_id> <dst_playlist_id> [position]")
 		return
 	}
 	if !a.ensureOAuth() {
@@ -213,6 +227,14 @@ func (a *App) doMv(args []string) {
 				VideoId: videoID,
 			},
 		},
+	}
+	if len(args) >= 4 {
+		pos, err := strconv.ParseInt(args[3], 10, 64)
+		if err != nil {
+			fmt.Printf("Invalid position: %s (must be a number)\n", args[3])
+			return
+		}
+		item.Snippet.Position = pos
 	}
 	_, err := a.oauthService.PlaylistItems.Insert([]string{"snippet"}, item).Do()
 	if err != nil {

@@ -1,0 +1,60 @@
+name: Find and Add to Playlist
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: 'Search keyword'
+        required: true
+        default: 'HOGE'
+      playlist_id:
+        description: 'Playlist ID to add videos to'
+        required: true
+      since:
+        description: 'Time filter (1h, 24h, 7d, 30d)'
+        required: false
+        default: '1h'
+      event_type:
+        description: 'Event type filter (live, upcoming, completed, or empty for all)'
+        required: false
+        default: ''
+
+jobs:
+  find-and-add:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build ysh
+        run: go build -o ./ysh ./cmd/ysh/
+
+      - name: Run find and add
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+        run: |
+          KEYWORD="${{ github.event.inputs.keyword || 'HOGE' }}"
+          PLAYLIST="${{ github.event.inputs.playlist_id || '' }}"
+          SINCE="${{ github.event.inputs.since || '1h' }}"
+          EVENT_TYPE="${{ github.event.inputs.event_type || '' }}"
+
+          ARGS="find -k ${KEYWORD} -s ${SINCE} -q"
+          if [ -n "${PLAYLIST}" ]; then
+            ARGS="${ARGS} -a ${PLAYLIST}"
+          fi
+          if [ -n "${EVENT_TYPE}" ]; then
+            ARGS="${ARGS} -e ${EVENT_TYPE}"
+          fi
+
+          echo "Running: ./ysh ${ARGS}"
+          ./ysh ${ARGS}

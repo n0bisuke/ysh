@@ -115,6 +115,8 @@ func main() {
 				fmt.Println("  logout               Reset OAuth token")
 				fmt.Println("  grep <keyword>       Filter ls results by keyword")
 				fmt.Println("  tree                 Display tree view of hierarchy")
+				fmt.Println("  sort --by title|date PLAYLIST_ID  Sort playlist items")
+				fmt.Println("  man <command>                 Show command manual")
 				fmt.Println()
 				fmt.Println("Run without arguments for interactive shell.")
 				return
@@ -137,11 +139,11 @@ func main() {
 		} else {
 			fmt.Println("Mode: full (OAuth)")
 		}
-		fmt.Println("Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, logout, exit, find, grep, tree")
+		fmt.Println("Commands: ls, cd, cat, cp, mkdir, chmod, rm, mv, rmdir, whoami, open, pwd, logout, exit, find, grep, tree, sort")
 	} else {
 		fmt.Println("Mode: read-only (API key)")
 		fmt.Println("Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in ~/.ysh/.env to enable write operations.")
-		fmt.Println("Commands: ls, cd, cat, whoami, open, pwd, exit, find, grep, tree")
+		fmt.Println("Commands: ls, cd, cat, whoami, open, pwd, exit, find, grep, tree, sort")
 	}
 	p := prompt.New(
 		app.executor,
@@ -213,6 +215,10 @@ func (a *App) executor(in string) {
 		a.doGrep(args)
 	case "tree":
 		a.doTree(args)
+	case "sort":
+		a.doSort(args)
+	case "man":
+		a.doMan(args)
 	case "exit", "quit":
 		fmt.Println("Bye!")
 		os.Exit(0)
@@ -289,6 +295,8 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 			{Text: "-s", Description: "Time filter (1h, 24h, 7d, 30d)"},
 			{Text: "-c", Description: "Channel ID"},
 			{Text: "-a", Description: "Auto-add to playlist"},
+			{Text: "-e", Description: "Event type (live/upcoming/completed)"},
+			{Text: "-l", Description: "Shorthand for --event-type live"},
 			{Text: "-q", Description: "Quiet mode (IDs only)"},
 		}
 	case "open":
@@ -299,6 +307,13 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 	case "grep":
 		return filterByPrefix(a.entries, prefix)
 	case "tree":
+		return []prompt.Suggest{}
+	case "sort":
+		return []prompt.Suggest{
+			{Text: "-b", Description: "Sort by (title, date)"},
+			{Text: "-r", Description: "Reverse order"},
+		}
+	case "man":
 		return []prompt.Suggest{}
 	case "cat":
 		return filterByPrefix(a.videoEntries, prefix)
@@ -320,6 +335,8 @@ func (a *App) completer(d prompt.Document) []prompt.Suggest {
 			{Text: "find", Description: "Search videos"},
 			{Text: "grep", Description: "Filter ls results by keyword"},
 			{Text: "tree", Description: "Display tree view of hierarchy"},
+			{Text: "sort", Description: "Sort playlist items"},
+			{Text: "man", Description: "Show command manual"},
 			{Text: "cp", Description: "Copy video into playlist"},
 			{Text: "mkdir", Description: "Create playlist"},
 			{Text: "chmod", Description: "Change playlist privacy"},

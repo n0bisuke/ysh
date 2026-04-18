@@ -24,6 +24,14 @@ func oauthConfig(clientID, clientSecret string) *oauth2.Config {
 }
 
 func loadToken(_ *oauth2.Config) (*oauth2.Token, error) {
+	// CI environment: restore token from env var
+	if envToken := os.Getenv("YOUTUBE_TOKEN_JSON"); envToken != "" {
+		var tok oauth2.Token
+		if err := json.Unmarshal([]byte(envToken), &tok); err != nil {
+			return nil, fmt.Errorf("invalid YOUTUBE_TOKEN_JSON: %w", err)
+		}
+		return &tok, nil
+	}
 	data, err := os.ReadFile(tokenPath())
 	if err != nil {
 		return nil, err
